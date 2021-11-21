@@ -171,7 +171,7 @@ for instr in instruments: #Instruments iteration
                                 message = "I bought "+str(instrument_name).replace('_','-')+" at "+str(avgPrice,2)+" dollars."
                                 telegram.sendTelegramMessage(message)
                             else:
-                                message = "Error while buying "+str(instrument_name).replace('_','-')+": ["+orderResult['error_code']+"] - "+orderResult['error_message']
+                                message = "Error while buying "+str(instrument_name).replace('_','-')+": ["+str(orderResult['error_code'])+"] - "+str(orderResult['error_message']).replace('_','-')
                                 telegram.sendTelegramMessage(message)
             else:
                 print("---> Verify if it's time to sell")
@@ -212,7 +212,7 @@ for instr in instruments: #Instruments iteration
                         message = "I sold "+str(instrument_name).replace('_','-')+" at "+str(avgPrice,2)+" dollars."
                         telegram.sendTelegramMessage(message)
                     else:
-                        message = "Error while selling "+str(instrument_name).replace('_','-')+": ["+orderResult['error_code']+"] - "+orderResult['error_message']
+                        message = "Error while selling "+str(instrument_name).replace('_','-')+": ["+str(orderResult['error_code'])+"] - "+str(orderResult['error_message']).replace('_','-')
                         telegram.sendTelegramMessage(message)
                 else:
                     print("---> Update current price...")
