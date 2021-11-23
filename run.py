@@ -168,11 +168,11 @@ for instr in instruments: #Instruments iteration
                                 avgPrice = orderDetail['result']['order_info']['avg_price']
                                 orderDate = datetime.datetime.fromtimestamp(int(candleTime/1000))
                                 executeDbWriteQuery("INSERT INTO "+os.getenv("TABLE_NAME")+" (order_id,instrument,buy_date,buy_price) VALUES ('"+str(orderId)+"','"+str(instrument_name)+"','"+str(orderDate)+"',"+str(avgPrice)+")")
-                                message = "I bought "+str(instrument_name).replace('_','-')+" at "+str(avgPrice,2)+" dollars."
-                                telegram.sendTelegramMessage(message)
+                                message = "I bought "+str(instrument_name).replace('_','-')+" at "+str(avgPrice)+" dollars."
+                                print(telegram.sendTelegramMessage(message).content)
                             else:
                                 message = "Error while buying "+str(instrument_name).replace('_','-')+": ["+str(orderResult['error_code'])+"] - "+str(orderResult['error_message']).replace('_','-')
-                                telegram.sendTelegramMessage(message)
+                                print(telegram.sendTelegramMessage(message).content)
             else:
                 print("---> Verify if it's time to sell")
                 midTimeframe = crypto.getCandlestick(instrument_name,os.getenv("MID_TIMEFRAME"))
@@ -209,11 +209,11 @@ for instr in instruments: #Instruments iteration
                         avgPrice = orderDetail['result']['order_info']['avg_price']
                         orderDate = datetime.datetime.fromtimestamp(int(candleTime/1000))
                         executeDbWriteQuery("UPDATE "+os.getenv("TABLE_NAME")+" SET sell_date='"+str(orderDate)+"', sell_price="+str(avgPrice)+", current_price="+str(avgPrice)+" WHERE order_id='"+order_id+"'")
-                        message = "I sold "+str(instrument_name).replace('_','-')+" at "+str(avgPrice,2)+" dollars."
-                        telegram.sendTelegramMessage(message)
+                        message = "I sold "+str(instrument_name).replace('_','-')+" at "+str(avgPrice)+" dollars."
+                        print(telegram.sendTelegramMessage(message).content)
                     else:
                         message = "Error while selling "+str(instrument_name).replace('_','-')+": ["+str(orderResult['error_code'])+"] - "+str(orderResult['error_message']).replace('_','-')
-                        telegram.sendTelegramMessage(message)
+                        print(telegram.sendTelegramMessage(message).content)
                 else:
                     print("---> Update current price...")
                     executeDbWriteQuery("UPDATE "+os.getenv("TABLE_NAME")+" SET current_price="+str(price)+" WHERE order_id='"+order_id+"'")
