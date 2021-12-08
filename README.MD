@@ -15,8 +15,6 @@ Pairs already purchased: 20
 10000 / (100 - 20) = 125 $
 </pre>
 
-**You'll never sell if you are losing money. But if you prefer you can disable this check in code.**
-
 It implements Bollinger Bandit strategy ([here for a quick explanation](https://www.traderslog.com/bollinger-bandit-trading-strategy "Bollinger Bandit strategy explanation")).
 
 ## Disclaimer
