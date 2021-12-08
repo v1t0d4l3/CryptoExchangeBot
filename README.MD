@@ -17,17 +17,7 @@ Pairs already purchased: 20
 
 **You'll never sell if you are losing money. But if you prefer you can disable this check in code.**
 
-It makes use of a multi time frame strategy based on EMACross (12,50) and MACD (12,26,9) as indicators.
-
-A multiple time frame analysis is the process of viewing the same currency pair under different time frames. In the released setup I use three different charts:
-
-- 1 day to estabilish a long term bull trend;
-- 4 hours to check if price is rising or is having a strong correction;
-- 1 hour to find a good entry point.
-
-4 hours chart is used to find the exit point too.
-
-With this approach I hope to avoid false signals.
+It implements Bollinger Bandit strategy ([here for a quick explanation](https://www.traderslog.com/bollinger-bandit-trading-strategy "Bollinger Bandit strategy explanation")).
 
 ## Disclaimer
 1. This is an **EXPERIMENTAL** project.
@@ -44,12 +34,10 @@ With this approach I hope to avoid false signals.
 4. A lowcost server to schedule
 
 ### Python Packages
-1. numpy
-2. pandas
-3. TA-Lib
-4. pytz
-5. python-dotenv
-6. mysql-connector
+1. pandas
+2. TA-Lib
+3. python-dotenv
+4. mysql-connector
 
 ### Installation Step
 
@@ -80,11 +68,11 @@ TABLE_NAME = "crypto_orders"
 
 6. Make a test executing
 <pre>python3 run.py</pre>
-7. If everything is ok you can schedule the script. In my case every 5 minutes.
+7. If everything is ok you can schedule the script. In my case every 15 minutes.
 <pre>
 crontab -e
 
-*/5 * * * * python3 /your/path/CryptoExchangeBot/run.py > /your/log/path/crypto-report.log
+*/15 * * * * python3 /your/path/CryptoExchangeBot/run.py > /your/log/path/crypto-report.log
 </pre>
 
 8. Wait for Telegram messages and don't leave Bot alone! ;-)

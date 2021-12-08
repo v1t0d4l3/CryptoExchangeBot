@@ -3,11 +3,8 @@ from Utils.Telegram import Telegram
 import mysql.connector as Database
 import os
 import talib
-import pytz
-import time
 import datetime
 import pandas
-import numpy as np
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -46,33 +43,59 @@ def executeDbWriteQuery(query):
 
 def applyTechIndicator(df):
 
-    #df.dropna(inplace = True)
-    #df.head()
-
-    df["EMA_FAST"] = talib.EMA(df["c"], timeperiod=int(os.getenv("EMA_FAST_TIME")))
-    df["EMA_SLOW"] = talib.EMA(df["c"], timeperiod=int(os.getenv("EMA_SLOW_TIME")))
-    df["MACD"], df["MACDSignal"],df['MACDHist'] = talib.MACD(df.c, fastperiod=int(os.getenv("MACD_FAST")), slowperiod=int(os.getenv("MACD_SLOW")), signalperiod=int(os.getenv("MACD_SIGNAL")))
-    df['MACD_NOT_NAN'] = np.where((df.MACD != None),1,0)
-    df['MACD_GT_ZERO'] = np.where((df.MACD > 0),1,0)
-    df['MACD_GT_SIGNAL'] = np.where((df.MACD>=df.MACDSignal),1,0)
-    df['EMAF_GT_EMAS'] = np.where((df.EMA_FAST >= df.EMA_SLOW),1,0)
-    df['EMAF_LT_PRICE'] = np.where(df.EMA_FAST<df.c,1,0)
-
+    liqLenght = int(os.getenv("BOLLINGER_SMA"))
+    df["bbupper"], df["bbmiddle"], df["bblower"] = talib.BBANDS(df.c, timeperiod=int(os.getenv("BOLLINGER_SMA")),nbdevup=float(os.getenv("BOLLINGER_STD")),nbdevdn=float(os.getenv("BOLLINGER_STD")),matype=0)
+    j=liqLenght
+    while j >= int(os.getenv("MIN_SMA_SL")):
+        df["SMA"+str(j)] = talib.SMA(df["c"],timeperiod=j)
+        j = j-1
     df.dropna(inplace = True)
     df.head()
 
     return df
 
-def isBuy(macdNotNull, macdGtZero,macdGtSignal,fastEmaGtSlowEma,fastEmaLtPrice=None):
-    returnVal = False
-    if macdNotNull==1 and macdGtZero==1 and macdGtSignal==1 and fastEmaGtSlowEma==1:
+def bollingerBanditStrategy(df):
+    df = applyTechIndicator(df)
+    position = "SELL"
+    buy=False
+    sell=False
+    for i in range(len(df)):
+        if i<int(os.getenv("BACK_DAYS")):
+            continue
+
+        date = df.values[i][0]/1000
+        open = df.values[i][1]
+        high = df.values[i][2]
+        low = df.values[i][3]
+        close = df.values[i][4]
+        volume = df.values[i][5]
+
+        bbupper = df.values[i][6]
+        bbmiddle = df.values[i][7]
+        bblower = df.values[i][8]
         
-        returnVal = True
+        rocCalc = close - df.values[i-int(os.getenv("BACK_DAYS"))][4]
 
-        if fastEmaLtPrice != None and fastEmaLtPrice != 1:
-            returnVal = False
-
-    return returnVal
+        buy=False
+        sell=False
+        if position == "SELL" and rocCalc>0 and close >= bbupper:
+            liqDays = int(os.getenv("BOLLINGER_SMA"))
+            buy=True
+                    
+        if position=="BUY":
+            liqDays = liqDays-1
+            if(liqDays>=int(os.getenv("MIN_SMA_SL"))):
+                takeProfitLevel=df.values[i][df.columns.get_loc("SMA"+str(liqDays))]
+            else:
+                takeProfitLevel=df.values[i][df.columns.get_loc("SMA"+str(os.getenv("MIN_SMA_SL")))]
+            if takeProfitLevel>bbupper:
+                sell=True
+    
+    if buy:
+        return "BUY"
+    if sell:
+        return "SELL"
+    return False
 
 ################
 ### STRATEGY ###
@@ -97,6 +120,8 @@ for instr in instruments: #Instruments iteration
         price_decimals = instr['price_decimals']
         quantity_decimals = instr['quantity_decimals']
 
+        print(instrument_name)
+
         #Check budget for the transaction
         baseCurrencyCapital = crypto.getAccountSummary(quote_currency)['result']['accounts'][0]['available']
         openOrders = executeDbReadQuery("SELECT count(1) FROM "+os.getenv("TABLE_NAME")+" WHERE instrument LIKE '%_"+str(quote_currency)+"' AND sell_date IS NULL")[0][0]
@@ -113,100 +138,36 @@ for instr in instruments: #Instruments iteration
         else:
             position = "SELL"
 
-        longTimeframe = crypto.getCandlestick(instrument_name,os.getenv("LONG_TIMEFRAME"))
+        timeframe = crypto.getCandlestick(instrument_name,os.getenv("TIMEFRAME"))
 
-        dfLong = pandas.DataFrame(longTimeframe['result']['data'])
-        dfLong = applyTechIndicator(dfLong)
-        if not dfLong.empty and len(dfLong) >= int(os.getenv("EMA_SLOW_TIME")): # Check if pair has long history
-            # Get some useful data on last candle
-            print(instrument_name)
-            
-            candleTime = dfLong.values[-1][0]
-            price = dfLong.values[-1][4]
-            macdNotNull = dfLong.values[-1][11]
-            macdGtZero = dfLong.values[-1][12]
-            macdGtSignal = dfLong.values[-1][13]
-            fastEmaGtSlowEma = dfLong.values[-1][14]
-            fastEmaLtPrice = dfLong.values[-1][15]
-
-            if position == "SELL":
-                print("---> Verify long term trend")
-                if isBuy(macdNotNull,macdGtZero,macdGtSignal,fastEmaGtSlowEma):
-                    
-                    midTimeframe = crypto.getCandlestick(instrument_name,os.getenv("MID_TIMEFRAME"))
-                    dfMid = pandas.DataFrame(midTimeframe['result']['data'])
-                    dfMid = applyTechIndicator(dfMid)
-
-                    candleTime = dfMid.values[-1][0]
-                    price = dfMid.values[-1][4]
-                    macdNotNull = dfMid.values[-1][11]
-                    macdGtZero = dfMid.values[-1][12]
-                    macdGtSignal = dfMid.values[-1][13]
-                    fastEmaGtSlowEma = dfMid.values[-1][14]
-                    fastEmaLtPrice = dfMid.values[-1][15]
-                    print("--->---> Verify mid term trend")
-                    if isBuy(macdNotNull,macdGtZero,macdGtSignal,fastEmaGtSlowEma):
-                        shortTimeframe = crypto.getCandlestick(instrument_name,os.getenv("SHORT_TIMEFRAME"))
-                        dfShort = pandas.DataFrame(shortTimeframe['result']['data'])
-                        dfShort = applyTechIndicator(dfShort)
-
-                        candleTime = dfShort.values[-1][0]
-                        price = dfShort.values[-1][4]
-                        macdNotNull = dfShort.values[-1][11]
-                        macdGtZero = dfShort.values[-1][12]
-                        macdGtSignal = dfShort.values[-1][13]
-                        fastEmaGtSlowEma = dfShort.values[-1][14]
-                        fastEmaLtPrice = dfShort.values[-1][15]
-                        print("--->---> Verify short term trend")
-                        if isBuy(macdNotNull,macdGtZero,macdGtSignal,fastEmaGtSlowEma, fastEmaLtPrice):
-                            print("--->--->--->---> BUY")
-                            buyQty = round(budget/price,quantity_decimals)
-                            orderResult = crypto.createOrder(instrument_name,"BUY","MARKET",None,buyQty)
-                            if orderResult['error_code'] == 0:
-                                orderId = orderResult['result']['order_id']
-                                orderDetail = crypto.getOrderDetail(orderId)
-                                avgPrice = orderDetail['result']['order_info']['avg_price']
-                                orderDate = datetime.datetime.fromtimestamp(int(candleTime/1000))
-                                executeDbWriteQuery("INSERT INTO "+os.getenv("TABLE_NAME")+" (order_id,instrument,buy_date,buy_price) VALUES ('"+str(orderId)+"','"+str(instrument_name)+"','"+str(orderDate)+"',"+str(avgPrice)+")")
-                                message = "I bought "+str(instrument_name).replace('_','-')+" at "+str(avgPrice)+" dollars."
-                                print(telegram.sendTelegramMessage(message).content)
-                            else:
-                                message = "Error while buying "+str(instrument_name).replace('_','-')+": ["+str(orderResult['error_code'])+"] - "+str(orderResult['error_message']).replace('_','-')
-                                print(telegram.sendTelegramMessage(message).content)
-            else:
-                print("---> Verify if it's time to sell")
-                midTimeframe = crypto.getCandlestick(instrument_name,os.getenv("MID_TIMEFRAME"))
-                dfMid = pandas.DataFrame(midTimeframe['result']['data'])
-                dfMid = applyTechIndicator(dfMid)
-
-                candleTime = dfMid.values[-1][0]
-                price = dfMid.values[-1][4]
-                macdNotNull = dfMid.values[-1][11]
-                macdGtZero = dfMid.values[-1][12]
-                macdGtSignal = dfMid.values[-1][13]
-                fastEmaGtSlowEma = dfMid.values[-1][14]
-                fastEmaLtPrice = dfMid.values[-1][15]
-
-                #gain = ((price/buy_price)-1)-0.008
-                gain = (((price-buy_price)/buy_price))-0.008
-                print("---> Current Gain: "+str(round(gain*100,2))+"%")
-
-                if fastEmaGtSlowEma == 0 and price > buy_price and gain >= 0.01: # Never sell if you are losing money. Sell only if gain is over 1%
-                    print("--->---> SELL")
+        df = pandas.DataFrame(timeframe['result']['data'])
+        action = bollingerBanditStrategy(df)
+        
+        if action:
+            candleTime = df.values[-1][0]
+            price = df.values[-1][4]
+            if position == "BUY":
+                if action == "SELL":
+                    print("---> SELL")
                     sellQty = crypto.getAccountSummary(base_currency)['result']['accounts'][0]['available']
                     quantity = round(sellQty,quantity_decimals)
+                    if(quantity_decimals==0):
+                        quantity = int(quantity)
                     charLen = len(str(quantity))
                     qtyFromStr = float(str(sellQty)[0:charLen])
                     if(quantity>qtyFromStr):
                         quantity=qtyFromStr
-                    
                     sellQty = quantity
+                    if(quantity_decimals==0):
+                        sellQty = int(sellQty)
+                    print("--->---> Quantity: "+str(sellQty))
 
                     orderResult = crypto.createOrder(instrument_name,"SELL","MARKET",None,sellQty)
                     if orderResult['error_code'] == 0:
                         orderId = orderResult['result']['order_id']
                         orderDetail = crypto.getOrderDetail(orderId)
                         avgPrice = orderDetail['result']['order_info']['avg_price']
+                        print("--->---> Price: "+str(avgPrice))
                         orderDate = datetime.datetime.fromtimestamp(int(candleTime/1000))
                         executeDbWriteQuery("UPDATE "+os.getenv("TABLE_NAME")+" SET sell_date='"+str(orderDate)+"', sell_price="+str(avgPrice)+", current_price="+str(avgPrice)+" WHERE order_id='"+order_id+"'")
                         message = "I sold "+str(instrument_name).replace('_','-')+" at "+str(avgPrice)+" dollars."
@@ -214,6 +175,34 @@ for instr in instruments: #Instruments iteration
                     else:
                         message = "Error while selling "+str(instrument_name).replace('_','-')+": ["+str(orderResult['error_code'])+"] - "+str(orderResult['error_message']).replace('_','-')
                         print(telegram.sendTelegramMessage(message).content)
+                        message = "sellQty: "+str(sellQty)+" - quantityRound: "+str(quantity)+" - qtyFromStr: "+str(qtyFromStr)+" - decimals: "+str(quantity_decimals)
+                        print(telegram.sendTelegramMessage(message).content)
                 else:
-                    print("---> Update current price...")
+                    print("---> position: "+position+" | action: "+str(action))
+                    print("---> Update Price")
                     executeDbWriteQuery("UPDATE "+os.getenv("TABLE_NAME")+" SET current_price="+str(price)+" WHERE order_id='"+order_id+"'")
+            
+            if position == "SELL":
+                if action == "BUY":
+                    print("---> BUY")
+                    buyQty = round(budget/price,quantity_decimals)
+                    if quantity_decimals==0:
+                        buyQty = int(buyQty)
+                    orderResult = crypto.createOrder(instrument_name,"BUY","MARKET",None,buyQty)
+                    if orderResult['error_code'] == 0:
+                        orderId = orderResult['result']['order_id']
+                        orderDetail = crypto.getOrderDetail(orderId)
+                        avgPrice = orderDetail['result']['order_info']['avg_price']
+                        orderDate = datetime.datetime.fromtimestamp(int(candleTime/1000))
+                        executeDbWriteQuery("INSERT INTO "+os.getenv("TABLE_NAME")+" (order_id,instrument,buy_date,buy_price) VALUES ('"+str(orderId)+"','"+str(instrument_name)+"','"+str(orderDate)+"',"+str(avgPrice)+")")
+                        message = "I bought "+str(instrument_name).replace('_','-')+" at "+str(avgPrice)+" dollars."
+                        print(telegram.sendTelegramMessage(message).content)
+                    else:
+                        message = "Error while buying "+str(instrument_name).replace('_','-')+": ["+str(orderResult['error_code'])+"] - "+str(orderResult['error_message']).replace('_','-')
+                        print(telegram.sendTelegramMessage(message).content)
+        else:
+            print("---> position: "+position+" | action: "+str(action))
+            if position == "BUY":
+                price = df.values[-1][4]
+                print("---> Update Price")
+                executeDbWriteQuery("UPDATE "+os.getenv("TABLE_NAME")+" SET current_price="+str(buy_price)+" WHERE order_id='"+order_id+"'")
